@@ -149,6 +149,31 @@
 }
 
 @layer base {
+  :is(
+    button,
+    a[href],
+    summary,
+    select,
+    label[for],
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [role="checkbox"],
+    [role="switch"],
+    [role="slider"],
+    input[type="checkbox"],
+    input[type="radio"],
+    input[type="range"],
+    input[type="file"],
+    label:has(input[type="checkbox"], input[type="radio"], input[type="file"])
+  ) {
+    cursor: pointer;
+  }
+  :is(button, select, input):disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
   * {
     border-color: var(--color-border);
   }
@@ -158,16 +183,26 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
     letter-spacing: 0;
-    background-image: radial-gradient(color-mix(in oklab, var(--foreground) 5%, transparent) 0.7px, transparent 0.7px);
+    background-image: radial-gradient(
+      color-mix(in oklab, var(--foreground) 5%, transparent) 0.7px,
+      transparent 0.7px
+    );
     background-size: 7px 7px;
   }
 
-  button, textarea { letter-spacing: 0; }
+  button,
+  textarea {
+    letter-spacing: 0;
+  }
 }
 
-@utility font-display { font-family: var(--font-display); }
+@utility font-display {
+  font-family: var(--font-display);
+}
 
 @utility no-scrollbar {
   scrollbar-width: none;
-  &::-webkit-scrollbar { display: none; }
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

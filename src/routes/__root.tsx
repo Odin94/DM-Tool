@@ -81,7 +81,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "A focused tabletop roleplaying game session dashboard." },
       { name: "author", content: "Hearthkeeper" },
       { property: "og:title", content: "Hearthkeeper" },
-      { property: "og:description", content: "A focused tabletop roleplaying game session dashboard." },
+      {
+        property: "og:description",
+        content: "A focused tabletop roleplaying game session dashboard.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },

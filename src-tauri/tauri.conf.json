@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hearthkeeper",
+  "version": "0.1.0",
+  "identifier": "app.hearthkeeper.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev:desktop",
+    "devUrl": "http://localhost:1420/desktop.html",
+    "beforeBuildCommand": "pnpm build:desktop",
+    "frontendDist": "../dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Hearthkeeper",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 360,
+        "minHeight": 600,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data: https: http:; media-src 'self' blob: https: http:; connect-src 'self' ipc: http://ipc.localhost https: http: data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"]
+  }
+}
