@@ -206,3 +206,32 @@
     display: none;
   }
 }
+
+/* Fast, consistent interaction and mobile safe-area spacing. */
+button:not(:disabled),
+[role="button"],
+select,
+summary {
+  cursor: pointer;
+}
+button:not(:disabled):active,
+[role="button"]:active {
+  transform: scale(0.97);
+}
+[data-instant] {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+nav[aria-label="Mobile tools"] {
+  padding-bottom: env(safe-area-inset-bottom);
+  height: calc(4rem + env(safe-area-inset-bottom));
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -5,6 +5,11 @@ import { resolveMedia } from "./storage";
 vi.mock("./storage", () => ({ resolveMedia: vi.fn(async (source: string) => source) }));
 class FakeAudio {
   paused = true;
+  currentTime = 0;
+  duration = 120;
+  src = "";
+  preload = "";
+  load = vi.fn();
   loop = false;
   volume = 1;
   onended: (() => void) | null = null;
@@ -35,6 +40,42 @@ beforeEach(() =>
     .mockImplementation(async (s) => s),
 );
 describe("audio channels", () => {
+  it("uses the warmed player immediately and reuses it after stopping", async () => {
+    const { engine, created } = setup();
+    await engine.preload([sound]);
+    expect(created).toHaveLength(1);
+    expect(created[0]!.load).toHaveBeenCalled();
+    const pending = engine.trigger(sound);
+    expect(created[0]!.play).toHaveBeenCalled();
+    await pending;
+    engine.stopAll();
+    await engine.trigger(sound);
+    expect(created).toHaveLength(1);
+  });
+  it("pauses without resetting, seeks independently, and stops at zero", async () => {
+    const { engine, created } = setup();
+    await engine.trigger({ ...sound, loop: false });
+    await engine.trigger({ ...sound, loop: false });
+    const first = engine.snapshot().effects[0]!.instanceId;
+    engine.seek(first, 42);
+    await engine.togglePause(first);
+    expect(engine.progress(first)).toEqual({ position: 42, duration: 120, paused: true });
+    expect(created[1]!.currentTime).toBe(0);
+    await engine.togglePause(first);
+    expect(created[0]!.currentTime).toBe(42);
+    engine.stop(first);
+    expect(created[0]!.currentTime).toBe(0);
+    expect(engine.snapshot().effects).toHaveLength(1);
+  });
+  it("bounds preloading and never creates players after disposal", async () => {
+    const { engine, created } = setup();
+    await engine.preload(
+      Array.from({ length: 100 }, (_, i) => ({ ...sound, source: `https://example.com/${i}` })),
+    );
+    expect(created).toHaveLength(24);
+    engine.dispose();
+    expect(created.every((a) => a.src === "")).toBe(true);
+  });
   it("multiplies each configured gain by the master volume", async () => {
     const { engine, created } = setup();
     await engine.trigger({ ...sound, volume: 25 });
@@ -60,7 +101,7 @@ describe("audio channels", () => {
     await engine.trigger({ ...sound, id: "other" });
     await engine.trigger(sound);
     expect(created[0]!.paused).toBe(true);
-    expect(engine.snapshot().effects).toEqual([{ id: "other", loop: true }]);
+    expect(engine.snapshot().effects).toMatchObject([{ id: "other", loop: true }]);
   });
   it("has one music channel with pause/resume and independent volumes", async () => {
     const { engine, created } = setup();

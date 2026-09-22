@@ -1,0 +1,3 @@
+procs:
+  app:
+    cmd: ["cmd", "/c", "pnpm tauri dev"]

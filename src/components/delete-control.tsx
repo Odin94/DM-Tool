@@ -12,6 +12,7 @@ import {
   AlertDialogCancel,
 } from "./ui/alert-dialog";
 import type { Campaign } from "@/lib/campaign";
+import { archiveNote, restoreNote } from "@/lib/workspace";
 import { deleteWithUndo, type DeletableKind } from "@/lib/deletion";
 
 export function DeleteControl({
@@ -21,6 +22,9 @@ export function DeleteControl({
   update,
   onDeleted,
   disabled = false,
+  externalOpen,
+  onExternalOpenChange,
+  hideTrigger = false,
 }: {
   kind: DeletableKind;
   id: string;
@@ -28,8 +32,13 @@ export function DeleteControl({
   update: (fn: (c: Campaign) => Campaign) => Promise<void>;
   onDeleted?: () => void;
   disabled?: boolean;
+  externalOpen?: boolean;
+  onExternalOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = externalOpen ?? localOpen;
+  const setOpen = onExternalOpenChange ?? setLocalOpen;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const remove = async () => {
@@ -38,6 +47,10 @@ export function DeleteControl({
     let undo: ((c: Campaign) => Campaign) | undefined;
     try {
       await update((c) => {
+        if (kind === "notes") {
+          undo = (current) => restoreNote(current, id);
+          return archiveNote(c, id);
+        }
         const deletion = deleteWithUndo(c, kind, id);
         undo = deletion.undo;
         return deletion.campaign;
@@ -52,13 +65,14 @@ export function DeleteControl({
             }),
           );
       };
-      toast.success(`${name} deleted`, {
+      toast.success(`${name} ${kind === "notes" ? "archived" : "deleted"}`, {
         duration: 12000,
         action: { label: "Undo", onClick: restore },
       });
       setOpen(false);
       onDeleted?.();
     } catch (e) {
+      if (kind === "notes") toast.error(`Could not archive note: ${String(e)}`);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -66,18 +80,20 @@ export function DeleteControl({
   };
   return (
     <>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-        disabled={disabled}
-        aria-label={`Delete ${name}`}
-        title={`Delete ${name}`}
-        onClick={() => setOpen(true)}
-      >
-        <Trash2 />
-      </Button>
+      {!hideTrigger && (
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          disabled={disabled || busy}
+          aria-label={`Delete ${name}`}
+          title={`Delete ${name}`}
+          onClick={() => (kind === "notes" ? void remove() : setOpen(true))}
+        >
+          <Trash2 />
+        </Button>
+      )}
       <AlertDialog
         open={open}
         onOpenChange={(value) => {
@@ -103,7 +119,6 @@ export function DeleteControl({
             <AlertDialogCancel disabled={busy}>Keep it</AlertDialogCancel>
             <Button
               type="button"
-              size="icon"
               variant="ghost"
               className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
               disabled={busy}
@@ -111,7 +126,7 @@ export function DeleteControl({
               title="Confirm deletion"
               onClick={() => void remove()}
             >
-              <Trash2 />
+              {busy ? "Deleting..." : "Delete"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

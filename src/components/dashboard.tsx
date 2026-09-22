@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BookOpenText,
   CircleStop,
@@ -39,7 +39,21 @@ import { useCampaign } from "@/hooks/use-campaign";
 import { AudioEngine } from "@/lib/audio";
 import { visibleAssets, type Campaign, type Character } from "@/lib/campaign";
 import { resolveMedia } from "@/lib/storage";
-import { CampaignLibrary, type Kind } from "./campaign-library";
+import type { Kind } from "./campaign-library";
+const CampaignLibrary = lazy(() =>
+  import("./campaign-library").then((m) => ({ default: m.CampaignLibrary })),
+);
+import { Link } from "@tanstack/react-router";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "./ui/sheet";
+import { PlaybackControls } from "./playback-controls";
+import { AssetMenu } from "./asset-menu";
 import { Toaster } from "./ui/sonner";
 import { DeleteControl } from "./delete-control";
 import { HueDialog } from "./hue-dialog";
@@ -64,7 +78,14 @@ export function Dashboard() {
         <Button onClick={() => state.refetch()}>Retry</Button>
       </main>
     );
-  return <Session campaign={state.data} update={state.update} saving={state.saving} />;
+  return (
+    <Session
+      key={state.campaignId}
+      campaign={state.data}
+      update={state.update}
+      saving={state.saving}
+    />
+  );
 }
 
 function Session({
@@ -139,7 +160,15 @@ function Session({
   useEffect(() => {
     audio.setAssetVolumes(c.sounds, c.music);
   }, [audio, c.sounds, c.music]);
-  useEffect(() => () => audio.stopAll(), [audio]);
+  useEffect(() => {
+    void audio.preload([
+      ...c.music.filter((m) => m.id === scene.musicId),
+      ...c.sounds.filter((s) => s.sceneId === scene.id),
+      ...c.sounds.filter((s) => s.sceneId === null),
+      ...c.music.filter((m) => m.sceneId === scene.id || m.sceneId === null),
+    ]);
+  }, [audio, c.sounds, c.music, scene.id, scene.musicId]);
+  useEffect(() => () => audio.dispose(), [audio]);
   useEffect(() => {
     let cancelled = false;
     setBackground(sceneImage);
@@ -238,6 +267,16 @@ function Session({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/" search={{ page: "campaigns" }}>
+                Campaigns
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/" search={{ page: "library" }}>
+                Library
+              </Link>
+            </Button>
             <span
               role="status"
               className="hidden text-xs font-semibold text-muted-foreground sm:block"
@@ -312,6 +351,7 @@ function Session({
               <HueDialog
                 key={scene.id}
                 suggested={scene.lightingId}
+                presets={c.lighting ?? []}
                 onSelect={(id) =>
                   update((current) => ({
                     ...current,
@@ -333,22 +373,22 @@ function Session({
                 >
                   {playback.musicPlaying ? <Pause /> : <Play />}
                 </Button>
-                <Dialog>
-                  <DialogTrigger asChild>
+                <Sheet>
+                  <SheetTrigger asChild>
                     <button className="min-w-0 flex-1 text-left" aria-label="Choose music">
                       <p className="truncate text-xs font-bold">{track?.name ?? "Choose music"}</p>
                       <p className="truncate text-[11px] text-scene-foreground/65">
                         {playback.musicPlaying ? "Playing" : "BGM · Tap to choose"}
                       </p>
                     </button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Background music</DialogTitle>
-                      <DialogDescription>
+                  </SheetTrigger>
+                  <SheetContent>
+                    <SheetHeader>
+                      <SheetTitle>Background music</SheetTitle>
+                      <SheetDescription>
                         One track plays at a time. Scene changes leave the current track running.
-                      </DialogDescription>
-                    </DialogHeader>
+                      </SheetDescription>
+                    </SheetHeader>
                     {[...visibleAssets(c.music, scene.id), ...visibleAssets(c.music, null)].map(
                       (m) => (
                         <Button
@@ -378,8 +418,8 @@ function Session({
                       />
                     </label>
                     <Button onClick={() => openLibrary("music")}>Manage music</Button>
-                  </DialogContent>
-                </Dialog>
+                  </SheetContent>
+                </Sheet>
                 <Slider
                   defaultValue={[c.musicVolume]}
                   key={`music-${c.musicVolume}`}
@@ -394,6 +434,14 @@ function Session({
                 <Music2 className="size-4 text-scene-foreground/70" />
               </div>
             </div>
+            {currentMusic && (
+              <PlaybackControls
+                engine={audio}
+                instanceId="music"
+                name={currentMusic.name}
+                report={report}
+              />
+            )}
           </div>
         </section>
         {pinned.length > 0 && (
@@ -480,47 +528,101 @@ function Session({
                 {sounds.map((sound) => {
                   const active = playback.effects.some((s) => s.id === sound.id);
                   return (
-                    <Button
+                    <AssetMenu
                       key={sound.id}
-                      variant="quiet"
-                      onClick={() =>
-                        sound.source
-                          ? report(audio.trigger(sound))
-                          : openLibrary("sounds", sound.id)
+                      campaign={c}
+                      kind="sounds"
+                      onDeleted={() =>
+                        playback.effects
+                          .filter((e) => e.id === sound.id)
+                          .forEach((e) => audio.stop(e.instanceId))
                       }
-                      className={cn(
-                        "h-auto min-h-24 justify-start whitespace-normal p-3 text-left transition-all",
-                        active && "border-primary bg-secondary",
-                      )}
+                      id={sound.id}
+                      edit={() => openLibrary("sounds", sound.id)}
+                      update={update}
+                      report={report}
+                      actions={[
+                        {
+                          label: "Play",
+                          run: () =>
+                            sound.source
+                              ? report(audio.trigger(sound))
+                              : openLibrary("sounds", sound.id),
+                        },
+                        {
+                          label: sound.loop ? "Disable loop" : "Enable loop",
+                          run: () =>
+                            report(
+                              update((current) => ({
+                                ...current,
+                                sounds: current.sounds.map((s) =>
+                                  s.id === sound.id ? { ...s, loop: !s.loop } : s,
+                                ),
+                              })),
+                            ),
+                        },
+                        ...playback.effects
+                          .filter((s) => s.id === sound.id)
+                          .map((s, i) => ({
+                            label: `Stop playback ${i + 1}`,
+                            run: () => audio.stop(s.instanceId),
+                          })),
+                      ]}
                     >
-                      <span
-                        className={cn(
-                          "grid size-10 shrink-0 place-items-center rounded-md text-foreground",
-                          sound.tone,
-                        )}
-                      >
-                        <Volume2 className="size-5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-bold leading-tight">{sound.name}</span>
-                        <span className="mt-1 block text-[11px] font-medium text-muted-foreground">
-                          {!sound.source
-                            ? "Attach audio"
-                            : active
-                              ? sound.loop
-                                ? "Playing loop"
-                                : "Playing"
-                              : sound.loop
-                                ? "Loop"
-                                : "One-shot"}
-                        </span>
-                      </span>
-                      {active && sound.loop ? (
-                        <CircleStop className="size-4 text-primary" />
-                      ) : (
-                        <Play className="size-4 text-muted-foreground" />
-                      )}
-                    </Button>
+                      <div className="rounded-md border border-border bg-background">
+                        <Button
+                          variant="quiet"
+                          onClick={() =>
+                            sound.source
+                              ? report(audio.trigger(sound))
+                              : openLibrary("sounds", sound.id)
+                          }
+                          className={cn(
+                            "w-full border-0 h-auto min-h-24 justify-start whitespace-normal p-3 text-left transition-all",
+                            active && "border-primary bg-secondary",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "grid size-10 shrink-0 place-items-center rounded-md text-foreground",
+                              sound.tone,
+                            )}
+                          >
+                            <Volume2 className="size-5" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-bold leading-tight">{sound.name}</span>
+                            <span className="mt-1 block text-[11px] font-medium text-muted-foreground">
+                              {!sound.source
+                                ? "Attach audio"
+                                : active
+                                  ? sound.loop
+                                    ? "Playing loop"
+                                    : "Playing"
+                                  : sound.loop
+                                    ? "Loop"
+                                    : "One-shot"}
+                            </span>
+                          </span>
+                          {active && sound.loop ? (
+                            <CircleStop className="size-4 text-primary" />
+                          ) : (
+                            <Play className="size-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                        {playback.effects
+                          .filter((s) => s.id === sound.id)
+                          .map((s) => (
+                            <PlaybackControls
+                              key={s.instanceId}
+                              engine={audio}
+                              instanceId={s.instanceId}
+                              name={sound.name}
+                              report={report}
+                            />
+                          ))}
+                      </div>
+                    </AssetMenu>
                   );
                 })}
                 {sounds.length === 0 && (
@@ -530,6 +632,22 @@ function Session({
                 )}
               </TabsContent>
             </Tabs>
+            {playback.effects
+              .filter((effect) => !sounds.some((sound) => sound.id === effect.id))
+              .map((effect) => (
+                <div key={effect.instanceId} className="mt-3 rounded-md bg-muted p-2">
+                  <p className="px-2 text-xs font-semibold">
+                    {c.sounds.find((sound) => sound.id === effect.id)?.name ?? "Sound"} · Playing in
+                    another scope
+                  </p>
+                  <PlaybackControls
+                    engine={audio}
+                    instanceId={effect.instanceId}
+                    name={c.sounds.find((sound) => sound.id === effect.id)?.name ?? "Sound"}
+                    report={report}
+                  />
+                </div>
+              ))}
           </section>
           <section
             id="notes"
@@ -657,28 +775,42 @@ function Session({
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {characters.map((character) => (
-                <article
+                <AssetMenu
                   key={character.id}
-                  className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-3"
+                  campaign={c}
+                  kind="characters"
+                  id={character.id}
+                  edit={() => openLibrary("characters", character.id)}
+                  update={update}
+                  report={report}
+                  actions={[
+                    { label: "Open character sheet", run: () => setSheet(character.id) },
+                    {
+                      label: c.pinned.includes(character.id) ? "Unpin" : "Pin to screen",
+                      run: () => togglePin(character.id),
+                    },
+                  ]}
                 >
-                  <Avatar character={character} />
-                  <button
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setSheet(character.id)}
-                  >
-                    <p className="truncate text-sm font-bold">{character.name}</p>
-                    <p className="truncate text-[11px] text-muted-foreground">{character.role}</p>
-                  </button>
-                  <Button
-                    variant={c.pinned.includes(character.id) ? "soft" : "ghost"}
-                    size="icon"
-                    className="size-8 shrink-0"
-                    onClick={() => togglePin(character.id)}
-                    aria-label={`${c.pinned.includes(character.id) ? "Unpin" : "Pin"} ${character.name}`}
-                  >
-                    <Pin />
-                  </Button>
-                </article>
+                  <article className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-3">
+                    <Avatar character={character} />
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => setSheet(character.id)}
+                    >
+                      <p className="truncate text-sm font-bold">{character.name}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">{character.role}</p>
+                    </button>
+                    <Button
+                      variant={c.pinned.includes(character.id) ? "soft" : "ghost"}
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => togglePin(character.id)}
+                      aria-label={`${c.pinned.includes(character.id) ? "Unpin" : "Pin"} ${character.name}`}
+                    >
+                      <Pin />
+                    </Button>
+                  </article>
+                </AssetMenu>
               ))}
               {characters.length === 0 && (
                 <p className="col-span-full py-3 text-sm text-muted-foreground">
@@ -710,15 +842,15 @@ function Session({
           </Button>
         ))}
       </nav>
-      <Dialog open={scenePicker} onOpenChange={setScenePicker}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="font-display text-2xl">Choose the next scene</DialogTitle>
-            <DialogDescription>
+      <Sheet open={scenePicker} onOpenChange={setScenePicker}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle className="font-display text-2xl">Choose the next scene</SheetTitle>
+            <SheetDescription>
               Sounds, notes, and characters follow the scene. Playing audio and pinned characters
               stay with you.
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
           <div className="grid max-h-[55dvh] gap-2 overflow-auto">
             {c.scenes.map((s) => (
               <Button
@@ -747,8 +879,8 @@ function Session({
           >
             Manage scenes
           </Button>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="max-w-[95vw] sm:max-w-[95vw]">
           <DialogHeader>
@@ -795,16 +927,18 @@ function Session({
         </DialogContent>
       </Dialog>
       {library && (
-        <CampaignLibrary
-          initialKind={libraryTarget.kind}
-          initialId={libraryTarget.id}
-          campaign={c}
-          update={update}
-          open={library}
-          onOpenChange={setLibrary}
-          report={report}
-          stop={() => audio.stopAll()}
-        />
+        <Suspense fallback={<p role="status">Opening library...</p>}>
+          <CampaignLibrary
+            initialKind={libraryTarget.kind}
+            initialId={libraryTarget.id}
+            campaign={c}
+            update={update}
+            open={library}
+            onOpenChange={setLibrary}
+            report={report}
+            stop={() => audio.stopAll()}
+          />
+        </Suspense>
       )}
     </main>
   );

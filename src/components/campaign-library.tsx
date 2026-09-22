@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { VirtualList } from "./virtual-list";
+import { LibraryImport } from "./library-import";
 import { DeleteControl } from "./delete-control";
 import { FileDropInput } from "./file-drop-input";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "./ui/sheet";
 import { type Campaign, type Scene, type Sound, type Character, notebook } from "@/lib/campaign";
 import { download, exportBackup, importBackup, importMedia } from "@/lib/storage";
 
@@ -73,15 +75,16 @@ export function CampaignLibrary({
     );
   };
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88dvh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="font-display text-2xl">Campaign library</DialogTitle>
-          <DialogDescription>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="overflow-y-auto sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle className="font-display text-2xl">Campaign library</SheetTitle>
+          <SheetDescription>
             Prepare scenes and assets here. Higher priorities appear first. Imported files are kept
             on this device.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
+        <LibraryImport campaign={c} update={update} report={report} />
         <div className="flex flex-wrap gap-2">
           {(["scenes", "sounds", "music", "characters"] as const).map((k) => (
             <Button
@@ -102,12 +105,14 @@ export function CampaignLibrary({
             <div className="flex justify-end">
               <Button onClick={add}>Add {kind === "music" ? "track" : kind.slice(0, -1)}</Button>
             </div>
-            <div className="grid gap-2">
-              {c[kind].map((item) => (
+            <VirtualList<Item>
+              key={kind}
+              items={c[kind]}
+              render={(item) => (
                 <Button
                   key={item.id}
                   variant="quiet"
-                  className="h-auto justify-between whitespace-normal text-left"
+                  className="h-auto w-full justify-between whitespace-normal text-left"
                   onClick={() => {
                     setDraft({ ...item });
                   }}
@@ -115,8 +120,8 @@ export function CampaignLibrary({
                   {item.name}
                   <span className="text-xs text-muted-foreground">Edit</span>
                 </Button>
-              ))}
-            </div>
+              )}
+            />
           </>
         ) : (
           <form
@@ -377,7 +382,7 @@ export function CampaignLibrary({
             />
           </div>
         </details>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

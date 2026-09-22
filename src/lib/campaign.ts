@@ -1,6 +1,26 @@
 import { z } from "zod";
 
 const scope = z.string().nullable();
+export const lightingSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  hueSceneId: z.string(),
+  description: z.string(),
+  bluetooth: z
+    .object({
+      power: z.boolean(),
+      brightness: z.number().min(1).max(100),
+      temperature: z.number().min(2000).max(6500).optional(),
+    })
+    .optional(),
+});
+export type Lighting = z.infer<typeof lightingSchema>;
+const noteSchema = z.object({
+  id: z.string(),
+  sceneId: scope,
+  text: z.string(),
+  createdAt: z.string(),
+});
 const base = {
   id: z.string().min(1),
   name: z.string().min(1),
@@ -36,15 +56,19 @@ export const campaignSchema = z
   .object({
     version: z.literal(1),
     name: z.string().min(1),
+    game: z.string().optional(),
+    players: z.array(z.string()).optional(),
+    lighting: z.array(lightingSchema).optional(),
+    archivedNotes: z
+      .array(noteSchema.extend({ archivedAt: z.string().datetime(), sceneName: z.string() }))
+      .optional(),
     session: z.number().int().positive(),
     activeSceneId: z.string(),
     scenes: z.array(sceneSchema).min(1),
     sounds: z.array(soundSchema),
     music: z.array(soundSchema),
     characters: z.array(characterSchema),
-    notes: z.array(
-      z.object({ id: z.string(), sceneId: scope, text: z.string(), createdAt: z.string() }),
-    ),
+    notes: z.array(noteSchema),
     pinned: z.array(z.string()),
     musicVolume: z.number().min(0).max(100),
     soundVolume: z.number().min(0).max(100),

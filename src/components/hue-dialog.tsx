@@ -1,23 +1,28 @@
+import { BluetoothLight } from "./bluetooth-light";
+import { hueBluetooth, bluetoothAvailable } from "@/lib/hue-bluetooth";
 import { useState } from "react";
 import { isTauri, invoke } from "@tauri-apps/api/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Lighting } from "@/lib/campaign";
 import { Lightbulb } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogTrigger,
-} from "./ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+} from "./ui/sheet";
 type HueScene = { id: string; metadata: { name: string }; group: { rid: string } };
 export function HueDialog({
   suggested,
   onSelect,
+  presets = [],
 }: {
   suggested: string | null;
+  presets?: Lighting[];
   onSelect: (id: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -40,15 +45,17 @@ export function HueDialog({
   });
   const recall = useMutation({
     mutationFn: async (id: string) => {
-      await invoke("hue_recall", { id });
+      const preset = presets.find((p) => p.id === id);
+      if (preset?.bluetooth) await hueBluetooth.apply(preset.bluetooth);
+      else await invoke("hue_recall", { id: preset?.hueSceneId ?? id });
       setActive(id);
       await onSelect(id);
     },
   });
   const error = pair.error ?? recall.error;
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
         <Button
           variant="ghost"
           className="border border-scene-foreground/25 bg-scene/60 text-scene-foreground hover:bg-scene-foreground/15 hover:text-scene-foreground"
@@ -56,15 +63,46 @@ export function HueDialog({
           <Lightbulb />
           {active ? "Hue scene applied" : "Lighting"}
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="font-display text-2xl">Philips Hue lighting</DialogTitle>
-          <DialogDescription>
+      </SheetTrigger>
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle className="font-display text-2xl">Philips Hue lighting</SheetTitle>
+          <SheetDescription>
             Recall scenes prepared in the Hue app. The last choice is remembered for this story
             scene.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
+        <BluetoothLight />
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {String(error)}
+          </p>
+        )}
+        {presets.length > 0 && (
+          <section className="space-y-2">
+            <h3 className="text-sm font-bold">Campaign lighting</h3>
+            {presets.map((p) => (
+              <Button
+                key={p.id}
+                variant="quiet"
+                className="h-auto w-full justify-start whitespace-normal"
+                disabled={
+                  (p.bluetooth ? !bluetoothAvailable() : !desktop || !p.hueSceneId) ||
+                  recall.isPending
+                }
+                onClick={() => recall.mutate(p.id)}
+              >
+                {p.name}
+                {p.bluetooth
+                  ? " · Bluetooth"
+                  : !p.hueSceneId
+                    ? " · Link a Hue scene in the library"
+                    : ""}
+                {p.id === active ? " · Applied" : p.id === suggested ? " · Suggested" : ""}
+              </Button>
+            ))}
+          </section>
+        )}
         {!desktop ? (
           <p className="text-sm">
             Open the Tauri desktop app to pair your bridge and control lights on your local network.
@@ -95,11 +133,6 @@ export function HueDialog({
                 {pair.isPending ? "Pairing…" : "Pair bridge"}
               </Button>
             </form>
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {String(error)}
-              </p>
-            )}
             {query.isPending ? (
               <p>Loading Hue scenes…</p>
             ) : query.error ? (
@@ -126,7 +159,7 @@ export function HueDialog({
             </Button>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

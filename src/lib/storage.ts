@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { campaignSchema, initialCampaign, notebook, type Campaign } from "./campaign";
-import { CampaignDatabase } from "@/db/campaign-database";
+import { workspaceSchema, type Workspace } from "./workspace";
 
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -50,21 +50,61 @@ async function loadLegacyCampaign(): Promise<Campaign> {
     ? structuredClone(initialCampaign)
     : campaignSchema.parse(typeof value === "string" ? JSON.parse(value) : value);
 }
-const campaignDatabase = new CampaignDatabase({
-  load: async () => {
-    const bytes = isTauri()
-      ? await invoke<number[] | null>("load_database")
-      : await read<Uint8Array>("sqlite");
-    return bytes ? new Uint8Array(bytes) : undefined;
-  },
-  save: async (bytes, c) => {
-    if (isTauri()) await invoke("save_database", { data: Array.from(bytes), notes: notebook(c) });
-    else await write("sqlite", bytes);
-  },
-  legacy: loadLegacyCampaign,
-});
-export const loadCampaign = () => campaignDatabase.read();
-export const saveCampaign = (c: Campaign) => campaignDatabase.write(c);
+// SQLite is loaded only for migration; normal launches do not download/initialize WASM.
+async function loadPreviousCampaign() {
+  const { CampaignDatabase } = await import("@/db/campaign-database");
+  return new CampaignDatabase({
+    load: async () => {
+      const bytes = isTauri()
+        ? await invoke<number[] | null>("load_database")
+        : await read<Uint8Array>("sqlite");
+      return bytes ? new Uint8Array(bytes) : undefined;
+    },
+    save: async () => {
+      /* Preserve the original database as a migration backup. */
+    },
+    legacy: loadLegacyCampaign,
+  }).read();
+}
+export async function loadWorkspace(): Promise<Workspace> {
+  const value = isTauri()
+    ? await invoke<string | null>("load_workspace")
+    : await read<Workspace>("workspace");
+  if (value != null)
+    return workspaceSchema.parse(typeof value === "string" ? JSON.parse(value) : value);
+  const campaign = await loadPreviousCampaign();
+  const workspace: Workspace = {
+    version: 1,
+    activeCampaignId: "original",
+    campaigns: [{ id: "original", campaign }],
+    library: { sounds: [], music: [], lighting: [] },
+  };
+  await saveWorkspace(workspace);
+  return workspace;
+}
+export async function saveWorkspace(value: Workspace) {
+  const workspace = workspaceSchema.parse(value);
+  if (isTauri())
+    await invoke("save_workspace", {
+      data: JSON.stringify(workspace),
+      notes: workspace.campaigns.map((c) => notebook(c.campaign)).join("\n\n---\n\n"),
+    });
+  else await write("workspace", workspace);
+}
+export const loadCampaign = async () => {
+  const w = await loadWorkspace();
+  return w.campaigns.find((c) => c.id === w.activeCampaignId)!.campaign;
+};
+export const saveCampaign = async (c: Campaign) => {
+  const campaign = campaignSchema.parse(c);
+  const w = await loadWorkspace();
+  await saveWorkspace({
+    ...w,
+    campaigns: w.campaigns.map((entry) =>
+      entry.id === w.activeCampaignId ? { ...entry, campaign } : entry,
+    ),
+  });
+};
 export async function importMedia(file: File): Promise<string> {
   if (!/^(audio|video|image)\//.test(file.type))
     throw new Error("Choose an audio, image, or video file.");

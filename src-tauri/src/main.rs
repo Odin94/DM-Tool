@@ -61,6 +61,32 @@ fn load_database(app: tauri::AppHandle) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
+#[tauri::command]
+fn load_workspace(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    match fs::read_to_string(directory(&app)?.join("workspace.json")) {
+        Ok(data) => Ok(Some(data)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn save_workspace(
+    app: tauri::AppHandle,
+    lock: tauri::State<StorageLock>,
+    data: String,
+    notes: String,
+) -> Result<(), String> {
+    let _guard = lock.0.lock().map_err(|e| e.to_string())?;
+    let value: Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+    if value["version"] != 1 || !value["campaigns"].is_array() {
+        return Err("Invalid workspace".into());
+    }
+    let dir = directory(&app)?;
+    write_file(dir.join("notes.md"), &notes)?;
+    write_file(dir.join("workspace.json"), &data)
+}
+
 fn bridge_client(ip: &str) -> Result<reqwest::Client, String> {
     let addr: Ipv4Addr = ip
         .parse()
@@ -155,6 +181,8 @@ fn main() {
         .manage(StorageLock(Mutex::new(())))
         .invoke_handler(tauri::generate_handler![
             load_campaign,
+            load_workspace,
+            save_workspace,
             load_database,
             save_database,
             hue_pair,
